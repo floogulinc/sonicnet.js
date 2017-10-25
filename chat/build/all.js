@@ -1,4 +1,4 @@
-(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 var SonicSocket = require('../lib/sonic-socket.js');
 var SonicServer = require('../lib/sonic-server.js');
 var SonicCoder = require('../lib/sonic-coder.js');
@@ -170,11 +170,12 @@ module.exports = SonicCoder;
 var RingBuffer = require('./ring-buffer.js');
 var SonicCoder = require('./sonic-coder.js');
 
-var audioContext = window.audioContext || new webkitAudioContext();
+var AudioContext = window.AudioContext || webkitAudioContext;
+var audioContext = window.audioContext || new AudioContext();
 /**
  * Extracts meaning from audio streams.
  *
- * (assumes audioContext is a WebAudioContext global variable.)
+ * (assumes audioContext is an AudioContext global variable.)
  *
  * 1. Listen to the microphone.
  * 2. Do an FFT on the input.
@@ -215,8 +216,12 @@ SonicServer.prototype.start = function() {
   var constraints = {
     audio: { optional: [{ echoCancellation: false }] }
   };
-  navigator.webkitGetUserMedia(constraints,
-      this.onStream_.bind(this), this.onStreamError_.bind(this));
+  navigator.getMedia = ( navigator.getUserMedia ||
+                         navigator.webkitGetUserMedia ||
+                         navigator.mozGetUserMedia ||
+                         navigator.msGetUserMedia );
+  navigator.getMedia({audio: true}, this.onStream_.bind(this),
+    this.onStreamError_.bind(this));
 };
 
 /**
@@ -224,12 +229,15 @@ SonicServer.prototype.start = function() {
  */
 SonicServer.prototype.stop = function() {
   this.isRunning = false;
-  this.stream.stop();
+  this.track.stop();
 };
 
 SonicServer.prototype.on = function(event, callback) {
   if (event == 'message') {
     this.callbacks.message = callback;
+  }
+  if (event == 'character') {
+    this.callbacks.character = callback;
   }
 };
 
@@ -244,11 +252,16 @@ SonicServer.prototype.setDebug = function(value) {
 };
 
 SonicServer.prototype.fire_ = function(callback, arg) {
-  callback(arg);
+  if (typeof(callback) === 'function') {
+    callback(arg);
+  }
 };
 
 SonicServer.prototype.onStream_ = function(stream) {
-  this.stream = stream;
+  // Store MediaStreamTrack for stopping later. MediaStream.stop() is deprecated
+  // See https://developers.google.com/web/updates/2015/07/mediastream-deprecations?hl=en
+  this.track = stream.getTracks()[0];
+
   // Setup audio graph.
   var input = audioContext.createMediaStreamSource(stream);
   var analyser = audioContext.createAnalyser();
@@ -361,6 +374,7 @@ SonicServer.prototype.analysePeaks = function() {
         char != this.coder.startChar && char != this.coder.endChar) {
       this.buffer += char;
       this.lastChar = char;
+      this.fire_(this.callbacks.character, char);
     }
     // Also look for the end character to go into idle mode.
     if (char == this.coder.endChar) {
@@ -461,7 +475,8 @@ module.exports = SonicServer;
 },{"./ring-buffer.js":2,"./sonic-coder.js":3}],5:[function(require,module,exports){
 var SonicCoder = require('./sonic-coder.js');
 
-var audioContext = window.audioContext || new webkitAudioContext();
+var AudioContext = window.AudioContext || webkitAudioContext;
+var audioContext = window.audioContext || new AudioContext();
 
 /**
  * Encodes text as audio streams.
@@ -500,7 +515,8 @@ SonicSocket.prototype.send = function(input, opt_callback) {
 };
 
 SonicSocket.prototype.scheduleToneAt = function(freq, startTime, duration) {
-  var gainNode = audioContext.createGain();
+  var gainNode = audioContext.createGain && audioContext.createGain() ||
+                 audioContext.createGainNode && audioContext.createGainNode();
   // Gain => Merger
   gainNode.gain.value = 0;
 
@@ -520,4 +536,4 @@ SonicSocket.prototype.scheduleToneAt = function(freq, startTime, duration) {
 
 module.exports = SonicSocket;
 
-},{"./sonic-coder.js":3}]},{},[1])
+},{"./sonic-coder.js":3}]},{},[1]);
